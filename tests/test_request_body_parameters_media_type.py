@@ -8,6 +8,7 @@ app = FastAPI()
 
 media_type = "application/vnd.api+json"
 
+
 # NOTE: These are not valid JSON:API resources
 # but they are fine for testing requestBody with custom media_type
 class Product(BaseModel):
@@ -55,7 +56,7 @@ client = TestClient(app)
 
 def test_openapi_schema():
     response = client.get("/openapi.json")
-    assert response.status_code == 200
+    assert response.status_code == 200, response.text
     openapi_schema = response.json()
     assert (
         openapi_schema["paths"]["/products"]["post"]["requestBody"]

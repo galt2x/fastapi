@@ -1,6 +1,6 @@
 from fastapi.testclient import TestClient
 
-from query_params_str_validations.tutorial012 import app
+from docs_src.query_params_str_validations.tutorial012 import app
 
 client = TestClient(app)
 
@@ -78,19 +78,19 @@ openapi_schema = {
 
 def test_openapi_schema():
     response = client.get("/openapi.json")
-    assert response.status_code == 200
+    assert response.status_code == 200, response.text
     assert response.json() == openapi_schema
 
 
 def test_default_query_values():
     url = "/items/"
     response = client.get(url)
-    assert response.status_code == 200
+    assert response.status_code == 200, response.text
     assert response.json() == {"q": ["foo", "bar"]}
 
 
 def test_multi_query_values():
     url = "/items/?q=baz&q=foobar"
     response = client.get(url)
-    assert response.status_code == 200
+    assert response.status_code == 200, response.text
     assert response.json() == {"q": ["baz", "foobar"]}
