@@ -1,30 +1,28 @@
+from collections.abc import Callable, Iterable, Mapping
 from enum import Enum
-from typing import Any, Callable, Dict, Iterable, List, Optional, Union
+from typing import Annotated, Any, Literal, Optional, Union
 
+from fastapi._compat import with_info_plain_validator_function
 from fastapi.logger import logger
-from pydantic import BaseModel
-
-try:
-    from pydantic import AnyUrl, Field
-except ImportError:  # pragma: nocover
-    # TODO: remove when removing support for Pydantic < 1.0.0
-    from pydantic import Schema as Field  # type: ignore
-    from pydantic import UrlStr as AnyUrl  # type: ignore
+from pydantic import (
+    AnyUrl,
+    BaseModel,
+    Field,
+    GetJsonSchemaHandler,
+)
+from typing_extensions import TypedDict
+from typing_extensions import deprecated as typing_deprecated
 
 try:
     import email_validator
 
     assert email_validator  # make autoflake ignore the unused import
-    try:
-        from pydantic import EmailStr
-    except ImportError:  # pragma: nocover
-        # TODO: remove when removing support for Pydantic < 1.0.0
-        from pydantic.types import EmailStr  # type: ignore
+    from pydantic import EmailStr
 except ImportError:  # pragma: no cover
 
-    class EmailStr(str):  # type: ignore
+    class EmailStr(str):  # type: ignore[no-redef]
         @classmethod
-        def __get_validators__(cls) -> Iterable[Callable]:
+        def __get_validators__(cls) -> Iterable[Callable[..., Any]]:
             yield cls.validate
 
         @classmethod
@@ -35,115 +33,189 @@ except ImportError:  # pragma: no cover
             )
             return str(v)
 
+        @classmethod
+        def _validate(cls, __input_value: Any, _: Any) -> str:
+            logger.warning(
+                "email-validator not installed, email fields will be treated as str.\n"
+                "To install, run: pip install email-validator"
+            )
+            return str(__input_value)
 
-class Contact(BaseModel):
-    name: Optional[str] = None
-    url: Optional[AnyUrl] = None
-    email: Optional[EmailStr] = None
+        @classmethod
+        def __get_pydantic_json_schema__(
+            cls, core_schema: Mapping[str, Any], handler: GetJsonSchemaHandler
+        ) -> dict[str, Any]:
+            return {"type": "string", "format": "email"}
+
+        @classmethod
+        def __get_pydantic_core_schema__(
+            cls, source: type[Any], handler: Callable[[Any], Mapping[str, Any]]
+        ) -> Mapping[str, Any]:
+            return with_info_plain_validator_function(cls._validate)
 
 
-class License(BaseModel):
+class BaseModelWithConfig(BaseModel):
+    model_config = {"extra": "allow"}
+
+
+class Contact(BaseModelWithConfig):
+    name: str | None = None
+    url: AnyUrl | None = None
+    email: EmailStr | None = None
+
+
+class License(BaseModelWithConfig):
     name: str
-    url: Optional[AnyUrl] = None
+    identifier: str | None = None
+    url: AnyUrl | None = None
 
 
-class Info(BaseModel):
+class Info(BaseModelWithConfig):
     title: str
-    description: Optional[str] = None
-    termsOfService: Optional[str] = None
-    contact: Optional[Contact] = None
-    license: Optional[License] = None
+    summary: str | None = None
+    description: str | None = None
+    termsOfService: str | None = None
+    contact: Contact | None = None
+    license: License | None = None
     version: str
 
 
-class ServerVariable(BaseModel):
-    enum: Optional[List[str]] = None
+class ServerVariable(BaseModelWithConfig):
+    enum: Annotated[list[str] | None, Field(min_length=1)] = None
     default: str
-    description: Optional[str] = None
+    description: str | None = None
 
 
-class Server(BaseModel):
-    url: AnyUrl
-    description: Optional[str] = None
-    variables: Optional[Dict[str, ServerVariable]] = None
+class Server(BaseModelWithConfig):
+    url: AnyUrl | str
+    description: str | None = None
+    variables: dict[str, ServerVariable] | None = None
 
 
 class Reference(BaseModel):
-    ref: str = Field(..., alias="$ref")
+    ref: str = Field(alias="$ref")
 
 
 class Discriminator(BaseModel):
     propertyName: str
-    mapping: Optional[Dict[str, str]] = None
+    mapping: dict[str, str] | None = None
 
 
-class XML(BaseModel):
-    name: Optional[str] = None
-    namespace: Optional[str] = None
-    prefix: Optional[str] = None
-    attribute: Optional[bool] = None
-    wrapped: Optional[bool] = None
+class XML(BaseModelWithConfig):
+    name: str | None = None
+    namespace: str | None = None
+    prefix: str | None = None
+    attribute: bool | None = None
+    wrapped: bool | None = None
 
 
-class ExternalDocumentation(BaseModel):
-    description: Optional[str] = None
+class ExternalDocumentation(BaseModelWithConfig):
+    description: str | None = None
     url: AnyUrl
 
 
-class SchemaBase(BaseModel):
-    ref: Optional[str] = Field(None, alias="$ref")
-    title: Optional[str] = None
-    multipleOf: Optional[float] = None
-    maximum: Optional[float] = None
-    exclusiveMaximum: Optional[float] = None
-    minimum: Optional[float] = None
-    exclusiveMinimum: Optional[float] = None
-    maxLength: Optional[int] = Field(None, gte=0)
-    minLength: Optional[int] = Field(None, gte=0)
-    pattern: Optional[str] = None
-    maxItems: Optional[int] = Field(None, gte=0)
-    minItems: Optional[int] = Field(None, gte=0)
-    uniqueItems: Optional[bool] = None
-    maxProperties: Optional[int] = Field(None, gte=0)
-    minProperties: Optional[int] = Field(None, gte=0)
-    required: Optional[List[str]] = None
-    enum: Optional[List[Any]] = None
-    type: Optional[str] = None
-    allOf: Optional[List[Any]] = None
-    oneOf: Optional[List[Any]] = None
-    anyOf: Optional[List[Any]] = None
-    not_: Optional[List[Any]] = Field(None, alias="not")
-    items: Optional[Any] = None
-    properties: Optional[Dict[str, Any]] = None
-    additionalProperties: Optional[Union[Dict[str, Any], bool]] = None
-    description: Optional[str] = None
-    format: Optional[str] = None
-    default: Optional[Any] = None
-    nullable: Optional[bool] = None
-    discriminator: Optional[Discriminator] = None
-    readOnly: Optional[bool] = None
-    writeOnly: Optional[bool] = None
-    xml: Optional[XML] = None
-    externalDocs: Optional[ExternalDocumentation] = None
-    example: Optional[Any] = None
-    deprecated: Optional[bool] = None
+# Ref JSON Schema 2020-12: https://json-schema.org/draft/2020-12/json-schema-validation#name-type
+SchemaType = Literal[
+    "array", "boolean", "integer", "null", "number", "object", "string"
+]
 
 
-class Schema(SchemaBase):
-    allOf: Optional[List[SchemaBase]] = None
-    oneOf: Optional[List[SchemaBase]] = None
-    anyOf: Optional[List[SchemaBase]] = None
-    not_: Optional[List[SchemaBase]] = Field(None, alias="not")
-    items: Optional[SchemaBase] = None
-    properties: Optional[Dict[str, SchemaBase]] = None
-    additionalProperties: Optional[Union[Dict[str, Any], bool]] = None
+class Schema(BaseModelWithConfig):
+    # Ref: JSON Schema 2020-12: https://json-schema.org/draft/2020-12/json-schema-core.html#name-the-json-schema-core-vocabu
+    # Core Vocabulary
+    schema_: str | None = Field(default=None, alias="$schema")
+    vocabulary: str | None = Field(default=None, alias="$vocabulary")
+    id: str | None = Field(default=None, alias="$id")
+    anchor: str | None = Field(default=None, alias="$anchor")
+    dynamicAnchor: str | None = Field(default=None, alias="$dynamicAnchor")
+    ref: str | None = Field(default=None, alias="$ref")
+    dynamicRef: str | None = Field(default=None, alias="$dynamicRef")
+    defs: dict[str, "SchemaOrBool"] | None = Field(default=None, alias="$defs")
+    comment: str | None = Field(default=None, alias="$comment")
+    # Ref: JSON Schema 2020-12: https://json-schema.org/draft/2020-12/json-schema-core.html#name-a-vocabulary-for-applying-s
+    # A Vocabulary for Applying Subschemas
+    allOf: list["SchemaOrBool"] | None = None
+    anyOf: list["SchemaOrBool"] | None = None
+    oneOf: list["SchemaOrBool"] | None = None
+    not_: Optional["SchemaOrBool"] = Field(default=None, alias="not")
+    if_: Optional["SchemaOrBool"] = Field(default=None, alias="if")
+    then: Optional["SchemaOrBool"] = None
+    else_: Optional["SchemaOrBool"] = Field(default=None, alias="else")
+    dependentSchemas: dict[str, "SchemaOrBool"] | None = None
+    prefixItems: list["SchemaOrBool"] | None = None
+    items: Optional["SchemaOrBool"] = None
+    contains: Optional["SchemaOrBool"] = None
+    properties: dict[str, "SchemaOrBool"] | None = None
+    patternProperties: dict[str, "SchemaOrBool"] | None = None
+    additionalProperties: Optional["SchemaOrBool"] = None
+    propertyNames: Optional["SchemaOrBool"] = None
+    unevaluatedItems: Optional["SchemaOrBool"] = None
+    unevaluatedProperties: Optional["SchemaOrBool"] = None
+    # Ref: JSON Schema Validation 2020-12: https://json-schema.org/draft/2020-12/json-schema-validation.html#name-a-vocabulary-for-structural
+    # A Vocabulary for Structural Validation
+    type: SchemaType | list[SchemaType] | None = None
+    enum: list[Any] | None = None
+    const: Any | None = None
+    multipleOf: float | None = Field(default=None, gt=0)
+    maximum: float | None = None
+    exclusiveMaximum: float | None = None
+    minimum: float | None = None
+    exclusiveMinimum: float | None = None
+    maxLength: int | None = Field(default=None, ge=0)
+    minLength: int | None = Field(default=None, ge=0)
+    pattern: str | None = None
+    maxItems: int | None = Field(default=None, ge=0)
+    minItems: int | None = Field(default=None, ge=0)
+    uniqueItems: bool | None = None
+    maxContains: int | None = Field(default=None, ge=0)
+    minContains: int | None = Field(default=None, ge=0)
+    maxProperties: int | None = Field(default=None, ge=0)
+    minProperties: int | None = Field(default=None, ge=0)
+    required: list[str] | None = None
+    dependentRequired: dict[str, set[str]] | None = None
+    # Ref: JSON Schema Validation 2020-12: https://json-schema.org/draft/2020-12/json-schema-validation.html#name-vocabularies-for-semantic-c
+    # Vocabularies for Semantic Content With "format"
+    format: str | None = None
+    # Ref: JSON Schema Validation 2020-12: https://json-schema.org/draft/2020-12/json-schema-validation.html#name-a-vocabulary-for-the-conten
+    # A Vocabulary for the Contents of String-Encoded Data
+    contentEncoding: str | None = None
+    contentMediaType: str | None = None
+    contentSchema: Optional["SchemaOrBool"] = None
+    # Ref: JSON Schema Validation 2020-12: https://json-schema.org/draft/2020-12/json-schema-validation.html#name-a-vocabulary-for-basic-meta
+    # A Vocabulary for Basic Meta-Data Annotations
+    title: str | None = None
+    description: str | None = None
+    default: Any | None = None
+    deprecated: bool | None = None
+    readOnly: bool | None = None
+    writeOnly: bool | None = None
+    examples: list[Any] | None = None
+    # Ref: OpenAPI 3.1.0: https://github.com/OAI/OpenAPI-Specification/blob/main/versions/3.1.0.md#schema-object
+    # Schema Object
+    discriminator: Discriminator | None = None
+    xml: XML | None = None
+    externalDocs: ExternalDocumentation | None = None
+    example: Annotated[
+        Any | None,
+        typing_deprecated(
+            "Deprecated in OpenAPI 3.1.0 that now uses JSON Schema 2020-12, "
+            "although still supported. Use examples instead."
+        ),
+    ] = None
 
 
-class Example(BaseModel):
-    summary: Optional[str] = None
-    description: Optional[str] = None
-    value: Optional[Any] = None
-    externalValue: Optional[AnyUrl] = None
+# Ref: https://json-schema.org/draft/2020-12/json-schema-core.html#name-json-schema-documents
+# A JSON Schema MUST be an object or a boolean.
+SchemaOrBool = Schema | bool
+
+
+class Example(TypedDict, total=False):
+    summary: str | None
+    description: str | None
+    value: Any | None
+    externalValue: AnyUrl | None
+
+    __pydantic_config__ = {"extra": "allow"}  # type: ignore[misc]  # ty: ignore[invalid-typed-dict-statement]
 
 
 class ParameterInType(Enum):
@@ -153,108 +225,97 @@ class ParameterInType(Enum):
     cookie = "cookie"
 
 
-class Encoding(BaseModel):
-    contentType: Optional[str] = None
-    # Workaround OpenAPI recursive reference, using Any
-    headers: Optional[Dict[str, Union[Any, Reference]]] = None
-    style: Optional[str] = None
-    explode: Optional[bool] = None
-    allowReserved: Optional[bool] = None
+class Encoding(BaseModelWithConfig):
+    contentType: str | None = None
+    headers: dict[str, Union["Header", Reference]] | None = None
+    style: str | None = None
+    explode: bool | None = None
+    allowReserved: bool | None = None
 
 
-class MediaType(BaseModel):
-    schema_: Optional[Union[Schema, Reference]] = Field(None, alias="schema")
-    example: Optional[Any] = None
-    examples: Optional[Dict[str, Union[Example, Reference]]] = None
-    encoding: Optional[Dict[str, Encoding]] = None
+class MediaType(BaseModelWithConfig):
+    schema_: Schema | Reference | None = Field(default=None, alias="schema")
+    example: Any | None = None
+    examples: dict[str, Example | Reference] | None = None
+    encoding: dict[str, Encoding] | None = None
 
 
-class ParameterBase(BaseModel):
-    description: Optional[str] = None
-    required: Optional[bool] = None
-    deprecated: Optional[bool] = None
+class ParameterBase(BaseModelWithConfig):
+    description: str | None = None
+    required: bool | None = None
+    deprecated: bool | None = None
     # Serialization rules for simple scenarios
-    style: Optional[str] = None
-    explode: Optional[bool] = None
-    allowReserved: Optional[bool] = None
-    schema_: Optional[Union[Schema, Reference]] = Field(None, alias="schema")
-    example: Optional[Any] = None
-    examples: Optional[Dict[str, Union[Example, Reference]]] = None
+    style: str | None = None
+    explode: bool | None = None
+    allowReserved: bool | None = None
+    schema_: Schema | Reference | None = Field(default=None, alias="schema")
+    example: Any | None = None
+    examples: dict[str, Example | Reference] | None = None
     # Serialization rules for more complex scenarios
-    content: Optional[Dict[str, MediaType]] = None
+    content: dict[str, MediaType] | None = None
 
 
 class Parameter(ParameterBase):
     name: str
-    in_: ParameterInType = Field(..., alias="in")
+    in_: ParameterInType = Field(alias="in")
 
 
 class Header(ParameterBase):
     pass
 
 
-# Workaround OpenAPI recursive reference
-class EncodingWithHeaders(Encoding):
-    headers: Optional[Dict[str, Union[Header, Reference]]] = None
+class RequestBody(BaseModelWithConfig):
+    description: str | None = None
+    content: dict[str, MediaType]
+    required: bool | None = None
 
 
-class RequestBody(BaseModel):
-    description: Optional[str] = None
-    content: Dict[str, MediaType]
-    required: Optional[bool] = None
+class Link(BaseModelWithConfig):
+    operationRef: str | None = None
+    operationId: str | None = None
+    parameters: dict[str, Any | str] | None = None
+    requestBody: Any | str | None = None
+    description: str | None = None
+    server: Server | None = None
 
 
-class Link(BaseModel):
-    operationRef: Optional[str] = None
-    operationId: Optional[str] = None
-    parameters: Optional[Dict[str, Union[Any, str]]] = None
-    requestBody: Optional[Union[Any, str]] = None
-    description: Optional[str] = None
-    server: Optional[Server] = None
-
-
-class Response(BaseModel):
+class Response(BaseModelWithConfig):
     description: str
-    headers: Optional[Dict[str, Union[Header, Reference]]] = None
-    content: Optional[Dict[str, MediaType]] = None
-    links: Optional[Dict[str, Union[Link, Reference]]] = None
+    headers: dict[str, Header | Reference] | None = None
+    content: dict[str, MediaType] | None = None
+    links: dict[str, Link | Reference] | None = None
 
 
-class Operation(BaseModel):
-    tags: Optional[List[str]] = None
-    summary: Optional[str] = None
-    description: Optional[str] = None
-    externalDocs: Optional[ExternalDocumentation] = None
-    operationId: Optional[str] = None
-    parameters: Optional[List[Union[Parameter, Reference]]] = None
-    requestBody: Optional[Union[RequestBody, Reference]] = None
-    responses: Dict[str, Response]
-    # Workaround OpenAPI recursive reference
-    callbacks: Optional[Dict[str, Union[Dict[str, Any], Reference]]] = None
-    deprecated: Optional[bool] = None
-    security: Optional[List[Dict[str, List[str]]]] = None
-    servers: Optional[List[Server]] = None
+class Operation(BaseModelWithConfig):
+    tags: list[str] | None = None
+    summary: str | None = None
+    description: str | None = None
+    externalDocs: ExternalDocumentation | None = None
+    operationId: str | None = None
+    parameters: list[Parameter | Reference] | None = None
+    requestBody: RequestBody | Reference | None = None
+    # Using Any for Specification Extensions
+    responses: dict[str, Response | Any] | None = None
+    callbacks: dict[str, dict[str, "PathItem"] | Reference] | None = None
+    deprecated: bool | None = None
+    security: list[dict[str, list[str]]] | None = None
+    servers: list[Server] | None = None
 
 
-class PathItem(BaseModel):
-    ref: Optional[str] = Field(None, alias="$ref")
-    summary: Optional[str] = None
-    description: Optional[str] = None
-    get: Optional[Operation] = None
-    put: Optional[Operation] = None
-    post: Optional[Operation] = None
-    delete: Optional[Operation] = None
-    options: Optional[Operation] = None
-    head: Optional[Operation] = None
-    patch: Optional[Operation] = None
-    trace: Optional[Operation] = None
-    servers: Optional[List[Server]] = None
-    parameters: Optional[List[Union[Parameter, Reference]]] = None
-
-
-# Workaround OpenAPI recursive reference
-class OperationWithCallbacks(BaseModel):
-    callbacks: Optional[Dict[str, Union[Dict[str, PathItem], Reference]]] = None
+class PathItem(BaseModelWithConfig):
+    ref: str | None = Field(default=None, alias="$ref")
+    summary: str | None = None
+    description: str | None = None
+    get: Operation | None = None
+    put: Operation | None = None
+    post: Operation | None = None
+    delete: Operation | None = None
+    options: Operation | None = None
+    head: Operation | None = None
+    patch: Operation | None = None
+    trace: Operation | None = None
+    servers: list[Server] | None = None
+    parameters: list[Parameter | Reference] | None = None
 
 
 class SecuritySchemeType(Enum):
@@ -264,9 +325,9 @@ class SecuritySchemeType(Enum):
     openIdConnect = "openIdConnect"
 
 
-class SecurityBase(BaseModel):
-    type_: SecuritySchemeType = Field(..., alias="type")
-    description: Optional[str] = None
+class SecurityBase(BaseModelWithConfig):
+    type_: SecuritySchemeType = Field(alias="type")
+    description: str | None = None
 
 
 class APIKeyIn(Enum):
@@ -276,24 +337,24 @@ class APIKeyIn(Enum):
 
 
 class APIKey(SecurityBase):
-    type_ = Field(SecuritySchemeType.apiKey, alias="type")
-    in_: APIKeyIn = Field(..., alias="in")
+    type_: SecuritySchemeType = Field(default=SecuritySchemeType.apiKey, alias="type")
+    in_: APIKeyIn = Field(alias="in")
     name: str
 
 
 class HTTPBase(SecurityBase):
-    type_ = Field(SecuritySchemeType.http, alias="type")
+    type_: SecuritySchemeType = Field(default=SecuritySchemeType.http, alias="type")
     scheme: str
 
 
 class HTTPBearer(HTTPBase):
-    scheme = "bearer"
-    bearerFormat: Optional[str] = None
+    scheme: Literal["bearer"] = "bearer"
+    bearerFormat: str | None = None
 
 
-class OAuthFlow(BaseModel):
-    refreshUrl: Optional[str] = None
-    scopes: Dict[str, str] = {}
+class OAuthFlow(BaseModelWithConfig):
+    refreshUrl: str | None = None
+    scopes: dict[str, str] = {}
 
 
 class OAuthFlowImplicit(OAuthFlow):
@@ -313,50 +374,62 @@ class OAuthFlowAuthorizationCode(OAuthFlow):
     tokenUrl: str
 
 
-class OAuthFlows(BaseModel):
-    implicit: Optional[OAuthFlowImplicit] = None
-    password: Optional[OAuthFlowPassword] = None
-    clientCredentials: Optional[OAuthFlowClientCredentials] = None
-    authorizationCode: Optional[OAuthFlowAuthorizationCode] = None
+class OAuthFlows(BaseModelWithConfig):
+    implicit: OAuthFlowImplicit | None = None
+    password: OAuthFlowPassword | None = None
+    clientCredentials: OAuthFlowClientCredentials | None = None
+    authorizationCode: OAuthFlowAuthorizationCode | None = None
 
 
 class OAuth2(SecurityBase):
-    type_ = Field(SecuritySchemeType.oauth2, alias="type")
+    type_: SecuritySchemeType = Field(default=SecuritySchemeType.oauth2, alias="type")
     flows: OAuthFlows
 
 
 class OpenIdConnect(SecurityBase):
-    type_ = Field(SecuritySchemeType.openIdConnect, alias="type")
+    type_: SecuritySchemeType = Field(
+        default=SecuritySchemeType.openIdConnect, alias="type"
+    )
     openIdConnectUrl: str
 
 
-SecurityScheme = Union[APIKey, HTTPBase, OAuth2, OpenIdConnect, HTTPBearer]
+SecurityScheme = APIKey | HTTPBase | OAuth2 | OpenIdConnect | HTTPBearer
 
 
-class Components(BaseModel):
-    schemas: Optional[Dict[str, Union[Schema, Reference]]] = None
-    responses: Optional[Dict[str, Union[Response, Reference]]] = None
-    parameters: Optional[Dict[str, Union[Parameter, Reference]]] = None
-    examples: Optional[Dict[str, Union[Example, Reference]]] = None
-    requestBodies: Optional[Dict[str, Union[RequestBody, Reference]]] = None
-    headers: Optional[Dict[str, Union[Header, Reference]]] = None
-    securitySchemes: Optional[Dict[str, Union[SecurityScheme, Reference]]] = None
-    links: Optional[Dict[str, Union[Link, Reference]]] = None
-    callbacks: Optional[Dict[str, Union[Dict[str, PathItem], Reference]]] = None
+class Components(BaseModelWithConfig):
+    schemas: dict[str, Schema | Reference] | None = None
+    responses: dict[str, Response | Reference] | None = None
+    parameters: dict[str, Parameter | Reference] | None = None
+    examples: dict[str, Example | Reference] | None = None
+    requestBodies: dict[str, RequestBody | Reference] | None = None
+    headers: dict[str, Header | Reference] | None = None
+    securitySchemes: dict[str, SecurityScheme | Reference] | None = None
+    links: dict[str, Link | Reference] | None = None
+    # Using Any for Specification Extensions
+    callbacks: dict[str, dict[str, PathItem] | Reference | Any] | None = None
+    pathItems: dict[str, PathItem | Reference] | None = None
 
 
-class Tag(BaseModel):
+class Tag(BaseModelWithConfig):
     name: str
-    description: Optional[str] = None
-    externalDocs: Optional[ExternalDocumentation] = None
+    description: str | None = None
+    externalDocs: ExternalDocumentation | None = None
 
 
-class OpenAPI(BaseModel):
+class OpenAPI(BaseModelWithConfig):
     openapi: str
     info: Info
-    servers: Optional[List[Server]] = None
-    paths: Dict[str, PathItem]
-    components: Optional[Components] = None
-    security: Optional[List[Dict[str, List[str]]]] = None
-    tags: Optional[List[Tag]] = None
-    externalDocs: Optional[ExternalDocumentation] = None
+    jsonSchemaDialect: str | None = None
+    servers: list[Server] | None = None
+    # Using Any for Specification Extensions
+    paths: dict[str, PathItem | Any] | None = None
+    webhooks: dict[str, PathItem | Reference] | None = None
+    components: Components | None = None
+    security: list[dict[str, list[str]]] | None = None
+    tags: list[Tag] | None = None
+    externalDocs: ExternalDocumentation | None = None
+
+
+Schema.model_rebuild()
+Operation.model_rebuild()
+Encoding.model_rebuild()
